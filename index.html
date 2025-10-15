@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Αποφυγή Εμποδίων</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            touch-action: manipulation;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        
+        #gameContainer {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            background: #fff;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            background: linear-gradient(to bottom, #87CEEB 0%, #98D8E8 100%);
+        }
+        
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            pointer-events: none;
+        }
+        
+        #gameOver {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+        }
+        
+        #gameOver.show {
+            display: flex;
+        }
+        
+        #gameOver h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+        
+        #gameOver p {
+            font-size: 24px;
+            margin-bottom: 30px;
+        }
+        
+        #restartBtn {
+            padding: 15px 40px;
+            font-size: 24px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: transform 0.1s;
+        }
+        
+        #restartBtn:active {
+            transform: scale(0.95);
+        }
+        
+        #instructions {
+            position: absolute;
+            bottom: 30px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="400" height="600"></canvas>
+        
+        <div id="ui">
+            <div>Σκορ: <span id="score">0</span></div>
+            <div>Ρεκόρ: <span id="highScore">0</span></div>
+        </div>
+        
+        <div id="instructions">
+            Σύρε τον παίκτη με το δάχτυλο!
+        </div>
+        
+        <div id="gameOver">
+            <h1>GAME OVER</h1>
+            <p>Σκορ: <span id="finalScore">0</span></p>
+            <button id="restartBtn">Παίξε Ξανά</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+        const highScoreEl = document.getElementById('highScore');
+        const finalScoreEl = document.getElementById('finalScore');
+        const gameOverEl = document.getElementById('gameOver');
+        const restartBtn = document.getElementById('restartBtn');
+        
+        let isDragging = false;
+        let touchStartX = 0;
+        
+        let player = {
+            x: canvas.width / 2 - 25,
+            y: canvas.height - 120,
+            width: 50,
+            height: 50,
+            targetX: canvas.width / 2 - 25
+        };
+        
+        let obstacles = [];
+        let score = 0;
+        let highScore = parseInt(localStorage.getItem('highScore')) || 0;
+        let gameRunning = false;
+        let animationId;
+        let obstacleSpeed = 5;
+        let frameCount = 0;
+        let spawnRate = 60;
+        let gameStartTime = 0;
+        
+        highScoreEl.textContent = highScore;
+        
+        function drawPlayer() {
+            const x = player.x;
+            const y = player.y;
+            
+            // Κεφάλι
+            ctx.fillStyle = '#FFD9B3';
+            ctx.beginPath();
+            ctx.arc(x + 25, y + 15, 12, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Μάτια
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(x + 20, y + 13, 2, 0, Math.PI * 2);
+            ctx.arc(x + 30, y + 13, 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Στόμα
+            ctx.beginPath();
+            ctx.arc(x + 25, y + 18, 4, 0, Math.PI);
+            ctx.stroke();
+            
+            // Σώμα
+            ctx.fillStyle = '#4A90E2';
+            ctx.fillRect(x + 18, y + 27, 14, 18);
+            
+            // Χέρια
+            ctx.strokeStyle = '#FFD9B3';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(x + 18, y + 30);
+            ctx.lineTo(x + 10, y + 38);
+            ctx.moveTo(x + 32, y + 30);
+            ctx.lineTo(x + 40, y + 38);
+            ctx.stroke();
+            
+            // Πόδια
+            ctx.fillStyle = '#2C3E50';
+            ctx.fillRect(x + 20, y + 45, 4, 5);
+            ctx.fillRect(x + 26, y + 45, 4, 5);
+        }
+        
+        function drawObstacle(obs) {
+            const x = obs.x;
+            const y = obs.y;
+            const size = obs.width;
+            
+            // Σκατουλα emoji style
+            ctx.fillStyle = '#8B4513';
+            
+            // Κάτω μέρος
+            ctx.beginPath();
+            ctx.ellipse(x + size/2, y + size*0.7, size*0.4, size*0.3, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Μεσαίο μέρος
+            ctx.beginPath();
+            ctx.ellipse(x + size/2, y + size*0.45, size*0.35, size*0.25, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Πάνω μέρος με καμπύλη
+            ctx.beginPath();
+            ctx.ellipse(x + size/2 + 5, y + size*0.25, size*0.25, size*0.2, 0.3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Ματάκια
+            ctx.fillStyle = '#FFF';
+            ctx.beginPath();
+            ctx.arc(x + size*0.4, y + size*0.4, size*0.08, 0, Math.PI * 2);
+            ctx.arc(x + size*0.6, y + size*0.4, size*0.08, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(x + size*0.4, y + size*0.4, size*0.04, 0, Math.PI * 2);
+            ctx.arc(x + size*0.6, y + size*0.4, size*0.04, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        function createObstacle() {
+            const width = 35 + Math.random() * 25;
+            const x = Math.random() * (canvas.width - width);
+            obstacles.push({
+                x: x,
+                y: -50,
+                width: width,
+                height: width
+            });
+        }
+        
+        function updateObstacles() {
+            obstacles.forEach((obs, index) => {
+                obs.y += obstacleSpeed;
+                
+                if (obs.y > canvas.height) {
+                    obstacles.splice(index, 1);
+                    score++;
+                    scoreEl.textContent = score;
+                }
+            });
+        }
+        
+        function checkCollision() {
+            for (let obs of obstacles) {
+                // Χρησιμοποιούμε κυκλικό collision με πολύ πιο στενά όρια
+                const playerCenterX = player.x + player.width / 2;
+                const playerCenterY = player.y + player.height / 2;
+                const obsCenterX = obs.x + obs.width / 2;
+                const obsCenterY = obs.y + obs.height / 2;
+                
+                const distance = Math.sqrt(
+                    Math.pow(playerCenterX - obsCenterX, 2) + 
+                    Math.pow(playerCenterY - obsCenterY, 2)
+                );
+                
+                // Πολύ μικρότερο collision radius για ακριβέστερο detection
+                const collisionRadius = (player.width / 4) + (obs.width / 3);
+                
+                if (distance < collisionRadius) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        
+        function updatePlayer() {
+            const diff = player.targetX - player.x;
+            player.x += diff * 0.15;
+            
+            if (player.x < 0) player.x = 0;
+            if (player.x + player.width > canvas.width) {
+                player.x = canvas.width - player.width;
+            }
+        }
+        
+        function gameLoop() {
+            if (!gameRunning) return;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.fillStyle = '#87CEEB';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Υπολογισμός χρόνου παιχνιδιού σε δευτερόλεπτα
+            const currentTime = Date.now();
+            const elapsedSeconds = (currentTime - gameStartTime) / 1000;
+            
+            // Αύξηση ταχύτητας κάθε 10 δευτερόλεπτα
+            const speedLevel = Math.floor(elapsedSeconds / 10);
+            obstacleSpeed = 5 + (speedLevel * 5);
+            
+            // Αύξηση ποσότητας που πέφτουν κάθε 15 δευτερόλεπτα
+            const spawnLevel = Math.floor(elapsedSeconds / 15);
+            spawnRate = Math.max(10, 60 - (spawnLevel * 20));
+            
+            frameCount++;
+            if (frameCount % spawnRate === 0) {
+                createObstacle();
+                // Μετά από 30 δευτερόλεπτα, spawn διπλές σκατούλες
+                if (elapsedSeconds > 30 && frameCount % (spawnRate * 2) === 0) {
+                    createObstacle();
+                }
+                // Μετά από 45 δευτερόλεπτα, spawn τριπλές σκατούλες
+                if (elapsedSeconds > 45 && frameCount % (spawnRate * 3) === 0) {
+                    createObstacle();
+                }
+            }
+            
+            updatePlayer();
+            updateObstacles();
+            
+            obstacles.forEach(drawObstacle);
+            drawPlayer();
+            
+            if (checkCollision()) {
+                endGame();
+                return;
+            }
+            
+            animationId = requestAnimationFrame(gameLoop);
+        }
+        
+        function startGame() {
+            gameRunning = true;
+            score = 0;
+            obstacleSpeed = 5;
+            spawnRate = 60;
+            obstacles = [];
+            frameCount = 0;
+            gameStartTime = Date.now();
+            player.x = canvas.width / 2 - 25;
+            player.targetX = canvas.width / 2 - 25;
+            scoreEl.textContent = score;
+            gameOverEl.classList.remove('show');
+            gameLoop();
+        }
+        
+        function endGame() {
+            gameRunning = false;
+            cancelAnimationFrame(animationId);
+            finalScoreEl.textContent = score;
+            
+            if (score > highScore) {
+                highScore = score;
+                highScoreEl.textContent = highScore;
+                localStorage.setItem('highScore', highScore);
+            }
+            
+            gameOverEl.classList.add('show');
+        }
+        
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            isDragging = true;
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            const touchX = touch.clientX - rect.left;
+            touchStartX = touchX;
+            player.targetX = touchX - player.width / 2;
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (isDragging) {
+                const touch = e.touches[0];
+                const rect = canvas.getBoundingClientRect();
+                const touchX = touch.clientX - rect.left;
+                player.targetX = touchX - player.width / 2;
+            }
+        });
+        
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            isDragging = false;
+        });
+        
+        canvas.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            player.targetX = mouseX - player.width / 2;
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                player.targetX = mouseX - player.width / 2;
+            }
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+        
+        canvas.addEventListener('mouseleave', () => {
+            isDragging = false;
+        });
+        
+        restartBtn.addEventListener('click', startGame);
+        
+        startGame();
+    </script>
+</body>
+</html>
